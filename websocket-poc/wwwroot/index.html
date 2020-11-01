@@ -1,15 +1,30 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <meta charset="utf-8" />
     <title></title>
     <style>
-        table { border: 0 }
-        .commslog-data { font-family: Consolas, Courier New, Courier, monospace; }
-        .commslog-server { background-color: red; color: white }
-        .commslog-client { background-color: green; color: white }
+        table {
+            border: 0
+        }
+
+        .commslog-data {
+            font-family: Consolas, Courier New, Courier, monospace;
+        }
+
+        .commslog-server {
+            background-color: red;
+            color: white
+        }
+
+        .commslog-client {
+            background-color: green;
+            color: white
+        }
     </style>
 </head>
+
 <body>
     <h1>WebSocket Sample Application</h1>
     <p id="stateLabel">Ready to connect...</p>
@@ -20,6 +35,17 @@
     </div>
     <p></p>
     <div>
+        <label for="destination">Destination:</label>
+        <input id="destination" />
+    </div>
+    <p></p>
+    <p></p>
+    <div>
+        <label for="unserSocketName">Name:</label>
+        <input id="unserSocketName" />
+    </div>
+    <p></p>
+    <div>
         <label for="sendMessage">Message to send:</label>
         <input id="sendMessage" disabled />
         <button id="sendButton" type="submit" disabled>Send</button>
@@ -27,6 +53,11 @@
     </div>
 
     <h2>Communication Log</h2>
+    <div>
+        <label for="clearLogs">Clear Logs:</label>
+        <button id="clearLogs">Clear</button>
+    </div>
+    <p></p>
     <table style="width: 800px">
         <thead>
             <tr>
@@ -47,12 +78,15 @@
         var sendButton = document.getElementById("sendButton");
         var commsLog = document.getElementById("commsLog");
         var closeButton = document.getElementById("closeButton");
+        var clearLogButton = document.getElementById("clearLogs");
+        var unserSocketName = document.getElementById("unserSocketName");
+        var destination = document.getElementById("destination");
         var socket;
 
         var scheme = document.location.protocol === "https:" ? "wss" : "ws";
         var port = document.location.port ? (":" + document.location.port) : "";
 
-        connectionUrl.value = scheme + "://" + document.location.hostname + port + "/ws" ;
+        connectionUrl.value = scheme + "://" + document.location.hostname + port + "/ws";
 
         function updateState() {
             function disable() {
@@ -110,37 +144,50 @@
             if (!socket || socket.readyState !== WebSocket.OPEN) {
                 alert("socket not connected");
             }
-            var data = sendMessage.value;
-            socket.send(data);
+
+            var data = {
+                from: unserSocketName.value,
+                destination: destination.value,
+                message: sendMessage.value
+            }
+
+            console.log("enviado", data);
+            socket.send(JSON.stringify(data));
             commsLog.innerHTML += '<tr>' +
                 '<td class="commslog-client">Client</td>' +
                 '<td class="commslog-server">Server</td>' +
-                '<td class="commslog-data">' + htmlEscape(data) + '</td></tr>';
+                '<td class="commslog-data">' + htmlEscape(data.message) + '</td></tr>';
         };
 
-        connectButton.onclick = function() {
+        connectButton.onclick = function () {
             stateLabel.innerHTML = "Connecting";
             socket = new WebSocket(connectionUrl.value);
             socket.onopen = function (event) {
                 updateState();
                 commsLog.innerHTML += '<tr>' +
                     '<td colspan="3" class="commslog-data">Connection opened</td>' +
-                '</tr>';
+                    '</tr>';
             };
             socket.onclose = function (event) {
                 updateState();
                 commsLog.innerHTML += '<tr>' +
                     '<td colspan="3" class="commslog-data">Connection closed. Code: ' + htmlEscape(event.code) + '. Reason: ' + htmlEscape(event.reason) + '</td>' +
-                '</tr>';
+                    '</tr>';
             };
             socket.onerror = updateState;
             socket.onmessage = function (event) {
+                let received = JSON.parse(event.data);
+                console.log("recebido", JSON.parse(event.data));
                 commsLog.innerHTML += '<tr>' +
                     '<td class="commslog-server">Server</td>' +
                     '<td class="commslog-client">Client</td>' +
-                    '<td class="commslog-data">' + htmlEscape(event.data) + '</td></tr>';
+                    '<td class="commslog-data">' + htmlEscape(received.message) + '</td></tr>';
             };
         };
+
+        clearLogButton.onclick = function () {
+            commsLog.innerHTML = '';
+        }
 
         function htmlEscape(str) {
             return str.toString()
@@ -152,4 +199,5 @@
         }
     </script>
 </body>
+
 </html>

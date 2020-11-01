@@ -7,6 +7,11 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using System.Linq;
+using System.Collections.Generic;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace websocket_poc
 {
@@ -26,7 +31,8 @@ namespace websocket_poc
                 app.UseDeveloperExceptionPage();
             }
 
-            //how frequently to send "ping" frames to the client to ensure proxies keep the connection open. The default is two minutes
+            //how frequently to send "ping" frames to the client to ensure proxies keep the connection open.
+            //The default is two minutes
             var webSocketOptions = new WebSocketOptions()
             {
                 KeepAliveInterval = TimeSpan.FromSeconds(120),
@@ -35,6 +41,9 @@ namespace websocket_poc
 
             app.UseWebSockets(webSocketOptions);
 
+            var connections = new Dictionary<string, WebSocket>();
+
+
             app.Use(async (httpContext, next) =>
             {
                 if (httpContext.Request.Path == "/ws")
@@ -42,7 +51,8 @@ namespace websocket_poc
                     if (httpContext.WebSockets.IsWebSocketRequest)
                     {
                         WebSocket webSocket = await httpContext.WebSockets.AcceptWebSocketAsync();
-                        await Echo(httpContext, webSocket);
+                        await AddConnection(httpContext, webSocket, connections);
+                        await Echo(httpContext, webSocket, connections);
                     }
                     else
                     {
@@ -62,17 +72,63 @@ namespace websocket_poc
             });
         }
 
-        private async Task Echo(HttpContext httpContext, WebSocket webSocket)
+
+        private async Task AddConnection(HttpContext httpContext, WebSocket webSocket, Dictionary<string, WebSocket> connections)
+        {
+            await Task.Factory.StartNew(() =>
+            {
+                var currentThread = Thread.CurrentThread.ManagedThreadId;
+                if (!connections.ContainsKey(httpContext.Connection.Id))
+                {
+                    connections.Add(httpContext.Connection.Id, webSocket);
+                }
+            });
+        }
+
+
+        private async Task Echo(HttpContext httpContext, WebSocket webSocket, Dictionary<string, WebSocket> connections)
         {
             var buffer = new byte[1024 * 4];
             WebSocketReceiveResult result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
             while (!result.CloseStatus.HasValue)
             {
-                await webSocket.SendAsync(new ArraySegment<byte>(buffer, 0, result.Count), result.MessageType, result.EndOfMessage, CancellationToken.None);
+                byte[] byteArray = new ArraySegment<byte>(buffer, 0, result.Count).ToArray();
+
+                var destinationWebsocket = connections.Select(connection => connection)
+                    .Where(connection => !connection.Key.Equals(httpContext.Connection.Id)).FirstOrDefault().Value; 
+
+                var data = GetMessageDataFromByteArray(byteArray);
+
+                await destinationWebsocket.SendAsync(byteArray, result.MessageType, result.EndOfMessage, CancellationToken.None);
 
                 result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
             }
-            await webSocket.CloseAsync(result.CloseStatus.Value, result.CloseStatusDescription, CancellationToken.None);
+
+            await webSocket.CloseAsync(result.CloseStatus.Value, result.CloseStatusDescription, CancellationToken.None)
+                .ContinueWith(task =>
+                {
+                    if (task.IsCompleted)
+                    {
+                        RemoveConnection(httpContext.Connection.Id, connections);
+                    }
+
+                }, TaskContinuationOptions.OnlyOnRanToCompletion);
         }
+
+        private object GetMessageDataFromByteArray(byte[] byteArray)
+        {
+            var readOnlySpan = new ReadOnlySpan<byte>(byteArray);
+            return JsonSerializer.Deserialize<Data>(readOnlySpan);
+        }
+
+        private void RemoveConnection(string httpContextId, Dictionary<string, WebSocket> connections)
+        {
+            if (connections.ContainsKey(httpContextId))
+            {
+                connections.Remove(httpContextId);
+            }
+        }
+
+
     }
 }
