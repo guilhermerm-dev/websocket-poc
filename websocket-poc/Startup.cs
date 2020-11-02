@@ -94,10 +94,12 @@ namespace websocket_poc
             {
                 byte[] byteArray = new ArraySegment<byte>(buffer, 0, result.Count).ToArray();
 
+                var data = GetDataFromByteArray(byteArray);
+
+                //TODO mplement logic to decide which command to call
+
                 var destinationWebsocket = connections.Select(connection => connection)
                     .Where(connection => !connection.Key.Equals(httpContext.Connection.Id)).FirstOrDefault().Value; 
-
-                var data = GetMessageDataFromByteArray(byteArray);
 
                 await destinationWebsocket.SendAsync(byteArray, result.MessageType, result.EndOfMessage, CancellationToken.None);
 
@@ -115,7 +117,7 @@ namespace websocket_poc
                 }, TaskContinuationOptions.OnlyOnRanToCompletion);
         }
 
-        private object GetMessageDataFromByteArray(byte[] byteArray)
+        private object GetDataFromByteArray(byte[] byteArray)
         {
             var readOnlySpan = new ReadOnlySpan<byte>(byteArray);
             return JsonSerializer.Deserialize<Data>(readOnlySpan);

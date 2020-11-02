@@ -164,6 +164,7 @@
             socket = new WebSocket(connectionUrl.value);
             socket.onopen = function (event) {
                 updateState();
+                //TODO Send message to register user who's connecting 
                 commsLog.innerHTML += '<tr>' +
                     '<td colspan="3" class="commslog-data">Connection opened</td>' +
                     '</tr>';
