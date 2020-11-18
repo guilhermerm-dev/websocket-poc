@@ -9,9 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using System.Linq;
 using System.Collections.Generic;
-using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace websocket_poc
 {
@@ -41,7 +39,7 @@ namespace websocket_poc
 
             app.UseWebSockets(webSocketOptions);
 
-            var connections = new Dictionary<string, WebSocket>();
+            var connections = new Dictionary<string, Connection>();
 
 
             app.Use(async (httpContext, next) =>
@@ -51,7 +49,6 @@ namespace websocket_poc
                     if (httpContext.WebSockets.IsWebSocketRequest)
                     {
                         WebSocket webSocket = await httpContext.WebSockets.AcceptWebSocketAsync();
-                        await AddConnection(httpContext, webSocket, connections);
                         await Echo(httpContext, webSocket, connections);
                     }
                     else
@@ -72,22 +69,9 @@ namespace websocket_poc
             });
         }
 
-
-        private async Task AddConnection(HttpContext httpContext, WebSocket webSocket, Dictionary<string, WebSocket> connections)
+        private async Task Echo(HttpContext httpContext, WebSocket webSocket, Dictionary<string, Connection> connections)
         {
-            await Task.Factory.StartNew(() =>
-            {
-                var currentThread = Thread.CurrentThread.ManagedThreadId;
-                if (!connections.ContainsKey(httpContext.Connection.Id))
-                {
-                    connections.Add(httpContext.Connection.Id, webSocket);
-                }
-            });
-        }
-
-
-        private async Task Echo(HttpContext httpContext, WebSocket webSocket, Dictionary<string, WebSocket> connections)
-        {
+            string userName = "";
             var buffer = new byte[1024 * 4];
             WebSocketReceiveResult result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
             while (!result.CloseStatus.HasValue)
@@ -96,13 +80,25 @@ namespace websocket_poc
 
                 var data = GetDataFromByteArray(byteArray);
 
-                //TODO mplement logic to decide which command to call
+                //TODO implement Strategy pattern
+                if (data.TryGetValue("eventType", out string action))
+                {
+                    switch (action)
+                    {
+                        case "USER_CONNECT":
+                            userName = data["userName"];
+                            await AddConnection(httpContext, webSocket, connections, userName);
+                            break;
 
-                var destinationWebsocket = connections.Select(connection => connection)
-                    .Where(connection => !connection.Key.Equals(httpContext.Connection.Id)).FirstOrDefault().Value; 
-
-                await destinationWebsocket.SendAsync(byteArray, result.MessageType, result.EndOfMessage, CancellationToken.None);
-
+                        case "USER_MESSAGE":
+                            string destination = data["destination"];
+                            var connection = connections.Where(connection => connection.Key.Equals(destination)).Select(connection => connection.Value).FirstOrDefault();
+                            await connection.WebSocket.SendAsync(byteArray, result.MessageType, result.EndOfMessage, CancellationToken.None);
+                            break;
+                        default:
+                            break;
+                    }
+                }
                 result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
             }
 
@@ -111,23 +107,34 @@ namespace websocket_poc
                 {
                     if (task.IsCompleted)
                     {
-                        RemoveConnection(httpContext.Connection.Id, connections);
+                        RemoveConnection(userName, connections);
                     }
 
                 }, TaskContinuationOptions.OnlyOnRanToCompletion);
         }
 
-        private object GetDataFromByteArray(byte[] byteArray)
+        private async Task AddConnection(HttpContext httpContext, WebSocket webSocket, Dictionary<string, Connection> connections, string userName)
         {
-            var readOnlySpan = new ReadOnlySpan<byte>(byteArray);
-            return JsonSerializer.Deserialize<Data>(readOnlySpan);
+            await Task.Factory.StartNew(() =>
+            {
+                if (!connections.ContainsKey(userName))
+                {
+                    connections.Add(userName, new Connection(httpContext.Connection.Id, webSocket));
+                }
+            });
         }
 
-        private void RemoveConnection(string httpContextId, Dictionary<string, WebSocket> connections)
+        private Dictionary<string, string> GetDataFromByteArray(byte[] byteArray)
         {
-            if (connections.ContainsKey(httpContextId))
+            var readOnlySpan = new ReadOnlySpan<byte>(byteArray);
+            return JsonSerializer.Deserialize<Dictionary<string, string>>(readOnlySpan);
+        }
+
+        private void RemoveConnection(string userName, Dictionary<string, Connection> connections)
+        {
+            if (connections.ContainsKey(userName))
             {
-                connections.Remove(httpContextId);
+                connections.Remove(userName);
             }
         }
 

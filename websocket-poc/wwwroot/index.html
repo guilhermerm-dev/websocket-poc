@@ -26,8 +26,14 @@
 </head>
 
 <body>
-    <h1>WebSocket Sample Application</h1>
+    <h1>Websocket Chat</h1>
     <p id="stateLabel">Ready to connect...</p>
+    <p></p>
+    <div>
+        <label for="unserSocketName">Name:</label>
+        <input id="unserSocketName" />
+    </div>
+    <p></p>
     <div>
         <label for="connectionUrl">WebSocket Server URL:</label>
         <input id="connectionUrl" />
@@ -36,13 +42,7 @@
     <p></p>
     <div>
         <label for="destination">Destination:</label>
-        <input id="destination" />
-    </div>
-    <p></p>
-    <p></p>
-    <div>
-        <label for="unserSocketName">Name:</label>
-        <input id="unserSocketName" />
+        <input id="destination" disabled />
     </div>
     <p></p>
     <div>
@@ -87,6 +87,52 @@
         var port = document.location.port ? (":" + document.location.port) : "";
 
         connectionUrl.value = scheme + "://" + document.location.hostname + port + "/ws";
+
+        connectButton.onclick = function () {
+            stateLabel.innerHTML = "Connecting";
+            socket = new WebSocket(connectionUrl.value);
+
+            socket.onopen = function (event) {
+                try {
+                    updateState();
+
+                    var data = {
+                        userName: unserSocketName.value,
+                        eventType: "USER_CONNECT"
+                    }
+
+                    console.log("enviado", data);
+                    socket.send(JSON.stringify(data));
+                    commsLog.innerHTML += '<tr>' +
+                        '<td colspan="3" class="commslog-data">Connection opened</td>' +
+                        '</tr>';
+                } catch (error) {
+                    console.error("Error to connect to socket");
+                }
+            };
+
+            socket.onclose = function (event) {
+                try {
+                    updateState();
+                    commsLog.innerHTML += '<tr>' +
+                        '<td colspan="3" class="commslog-data">Connection closed. Code: ' + htmlEscape(event.code) + '. Reason: ' + htmlEscape(event.reason) + '</td>' +
+                        '</tr>';
+                } catch (error) {
+                    console.error("Error to close connection");
+                }
+            };
+
+            socket.onerror = updateState;
+
+            socket.onmessage = function (event) {
+                let received = JSON.parse(event.data);
+                console.log("recebido", JSON.parse(event.data));
+                commsLog.innerHTML += '<tr>' +
+                    '<td class="commslog-server">' + htmlEscape(received.from) + '</td>' +
+                    '<td class="commslog-client">Me</td>' +
+                    '<td class="commslog-data">' + htmlEscape(received.message) + '</td></tr>';
+            };
+        };
 
         function updateState() {
             function disable() {
@@ -134,57 +180,36 @@
         }
 
         closeButton.onclick = function () {
-            if (!socket || socket.readyState !== WebSocket.OPEN) {
+            if (isSocketConnected()) {
+                socket.close(1000, "Closing from client");
+            } else {
                 alert("socket not connected");
             }
-            socket.close(1000, "Closing from client");
         };
 
         sendButton.onclick = function () {
-            if (!socket || socket.readyState !== WebSocket.OPEN) {
+            if (isSocketConnected()) {
+                var data = {
+                    from: unserSocketName.value,
+                    destination: destination.value,
+                    eventType: "USER_MESSAGE",
+                    message: sendMessage.value
+                }
+
+                console.log("enviado", data);
+                socket.send(JSON.stringify(data));
+                commsLog.innerHTML += '<tr>' +
+                    '<td class="commslog-client">Me</td>' +
+                    '<td class="commslog-server">' + htmlEscape(data.destination) + '</td>' +
+                    '<td class="commslog-data">' + htmlEscape(data.message) + '</td></tr>';
+            } else {
                 alert("socket not connected");
             }
-
-            var data = {
-                from: unserSocketName.value,
-                destination: destination.value,
-                message: sendMessage.value
-            }
-
-            console.log("enviado", data);
-            socket.send(JSON.stringify(data));
-            commsLog.innerHTML += '<tr>' +
-                '<td class="commslog-client">Client</td>' +
-                '<td class="commslog-server">Server</td>' +
-                '<td class="commslog-data">' + htmlEscape(data.message) + '</td></tr>';
         };
 
-        connectButton.onclick = function () {
-            stateLabel.innerHTML = "Connecting";
-            socket = new WebSocket(connectionUrl.value);
-            socket.onopen = function (event) {
-                updateState();
-                //TODO Send message to register user who's connecting 
-                commsLog.innerHTML += '<tr>' +
-                    '<td colspan="3" class="commslog-data">Connection opened</td>' +
-                    '</tr>';
-            };
-            socket.onclose = function (event) {
-                updateState();
-                commsLog.innerHTML += '<tr>' +
-                    '<td colspan="3" class="commslog-data">Connection closed. Code: ' + htmlEscape(event.code) + '. Reason: ' + htmlEscape(event.reason) + '</td>' +
-                    '</tr>';
-            };
-            socket.onerror = updateState;
-            socket.onmessage = function (event) {
-                let received = JSON.parse(event.data);
-                console.log("recebido", JSON.parse(event.data));
-                commsLog.innerHTML += '<tr>' +
-                    '<td class="commslog-server">Server</td>' +
-                    '<td class="commslog-client">Client</td>' +
-                    '<td class="commslog-data">' + htmlEscape(received.message) + '</td></tr>';
-            };
-        };
+        function isSocketConnected() {
+            return (socket && socket.readyState == WebSocket.OPEN);
+        }
 
         clearLogButton.onclick = function () {
             commsLog.innerHTML = '';
